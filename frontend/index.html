@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitoreo de Flota Logística — Híbrido MQTT + REST</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.4/mqtt.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f0; color: #1a1a1a; min-height: 100vh; }
+  .header { background: #fff; border-bottom: 1px solid #e5e5e0; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; }
+  .header h1 { font-size: 16px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #888; display: inline-block; margin-right: 6px; transition: background .3s; }
+  .status-dot.connected { background: #3B6D11; }
+  .status-dot.error { background: #A32D2D; }
+  .status-label { font-size: 13px; color: #666; }
+  .main { padding: 16px; display: flex; flex-direction: column; gap: 16px; max-width: 1200px; margin: 0 auto; }
+  .cfg-panel { background: #fff; border: 1px solid #e5e5e0; border-radius: 10px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .cfg-panel label { font-size: 13px; color: #666; }
+  .cfg-panel input { height: 34px; padding: 0 10px; font-size: 13px; border: 1px solid #ddd; border-radius: 6px; width: 320px; outline: none; }
+  .cfg-panel input:focus { border-color: #185FA5; }
+  .cfg-panel button { height: 34px; padding: 0 18px; font-size: 13px; cursor: pointer; border: 1px solid #ddd; border-radius: 6px; background: #fff; transition: background .15s; }
+  .cfg-panel button:hover { background: #f5f5f0; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .card { background: #f0f0eb; border-radius: 8px; padding: 14px 16px; }
+  .card-label { font-size: 12px; color: #666; margin-bottom: 4px; }
+  .card-value { font-size: 24px; font-weight: 500; }
+  .card-sub { font-size: 12px; color: #888; margin-top: 2px; }
+  .alert-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px; }
+  .alert-temp { background: #FCEBEB; color: #A32D2D; }
+  .alert-fuel { background: #FAEEDA; color: #854F0B; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .panel { background: #fff; border: 1px solid #e5e5e0; border-radius: 10px; padding: 16px; }
+  .panel h2 { font-size: 13px; font-weight: 500; margin-bottom: 12px; color: #666; }
+  .map-wrap { position: relative; width: 100%; height: 360px; border-radius: 8px; overflow: hidden; background: #E1F5EE; }
+  #mapCanvas { width: 100%; height: 100%; }
+  .chart-wrap { height: 200px; position: relative; }
+  .vehicles-list { display: flex; flex-direction: column; gap: 8px; }
+  .veh-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #e5e5e0; border-radius: 7px; }
+  .veh-row.clickable { cursor: pointer; transition: transform .12s ease, border-color .12s ease, background .12s ease; }
+  .veh-row.clickable:hover { transform: translateY(-1px); border-color: #bfc8d1; background: #fbfbf8; }
+  .veh-row.selected { border-color: #185FA5; background: #eff6fc; }
+  .veh-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .veh-name { font-size: 13px; font-weight: 500; min-width: 58px; }
+  .veh-stats { font-size: 12px; color: #666; flex: 1; }
+  .vehicle-detail { margin-top: 12px; border-top: 1px solid #ecece6; padding-top: 12px; display: grid; gap: 10px; }
+  .vehicle-detail-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .vehicle-detail-title { font-size: 14px; font-weight: 600; color: #333; }
+  .vehicle-detail-meta { font-size: 12px; color: #666; }
+  .vehicle-detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .vehicle-mini { background: #f7f7f2; border: 1px solid #e5e5e0; border-radius: 8px; padding: 10px 12px; }
+  .vehicle-mini label { display: block; font-size: 11px; color: #777; margin-bottom: 4px; }
+  .vehicle-mini strong { font-size: 16px; color: #1a1a1a; }
+  .timeline { display: grid; gap: 6px; max-height: 170px; overflow-y: auto; }
+  .timeline-item { font-size: 12px; padding: 6px 8px; border-radius: 6px; background: #fafaf6; border: 1px solid #ecece6; color: #555; }
+  .alerts-list { display: flex; flex-direction: column; gap: 5px; max-height: 220px; overflow-y: auto; }
+  .alert-item { font-size: 12px; padding: 6px 10px; border-radius: 6px; border-left: 3px solid; }
+  .alert-item.temp { background: #FCEBEB; border-color: #E24B4A; color: #791F1F; }
+  .alert-item.fuel { background: #FAEEDA; border-color: #EF9F27; color: #633806; }
+  .alert-item.info { background: #EAF3DE; border-color: #639922; color: #3B6D11; }
+  .context-panel { display: grid; grid-template-columns: 1.2fr .8fr; gap: 16px; }
+  .context-box { background: linear-gradient(135deg, #ffffff 0%, #f7f7f2 100%); border: 1px solid #e5e5e0; border-radius: 10px; padding: 16px; }
+  .context-box h2 { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #444; }
+  .context-box p, .context-box li { font-size: 13px; line-height: 1.5; color: #555; }
+  .context-box ul { margin-left: 18px; display: grid; gap: 6px; }
+  .rest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .rest-pill { background: #f7f7f2; border: 1px solid #e5e5e0; border-radius: 8px; padding: 10px 12px; }
+  .rest-pill label { display: block; font-size: 11px; color: #777; margin-bottom: 4px; }
+  .rest-pill strong { font-size: 18px; color: #1a1a1a; }
+  @media (max-width: 700px) {
+    .cards { grid-template-columns: 1fr; }
+    .grid2 { grid-template-columns: 1fr; }
+    .context-panel { grid-template-columns: 1fr; }
+    .rest-grid { grid-template-columns: 1fr; }
+    .vehicle-detail-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+    Monitoreo de flota logística
+  </h1>
+  <div style="display:flex;align-items:center;gap:16px">
+    <span id="msgCount" style="font-size:12px;color:#888">0 actualizaciones</span>
+    <div style="display:flex;align-items:center">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="status-label" id="statusLabel">Desconectado</span>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+
+  <div class="context-panel">
+    <div class="context-box">
+      <h2>Cómo funciona este sistema</h2>
+      <p>Los sensores simulados publican GPS, temperatura y combustible por MQTT. El puente MQTT→RabbitMQ traduce los datos y el microservicio Java los consume para generar un estado consolidado, alertas e historial. Este dashboard mezcla ambos mundos: el mapa se actualiza por WebSocket MQTT en tiempo real, y los paneles de estado usan la API REST de Spring Boot.</p>
+    </div>
+    <div class="context-box">
+      <h2>Flujo de datos</h2>
+      <ul>
+        <li>Simulador de sensores → MQTT</li>
+        <li>Puente MQTT → RabbitMQ</li>
+        <li>Microservicio Java → API REST</li>
+        <li>Dashboard → mapa en MQTT, estado en REST</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="cfg-panel">
+    <label>MQTT WebSocket:</label>
+    <input type="text" id="brokerUrl" value="ws://localhost:9001/mqtt" />
+    <label>API Java:</label>
+    <input type="text" id="apiUrl" value="http://localhost:8080/api/fleet" />
+    <button id="connectBtn" onclick="toggleConnect()">Conectar</button>
+    <span style="font-size:12px;color:#888">Mapa por MQTT y estado consolidado por REST</span>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">Vehículos activos</div>
+      <div class="card-value" id="activeCount">0 / 3</div>
+      <div class="card-sub">Última actualización: <span id="lastUpdate">—</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Alertas activas</div>
+      <div class="card-value" id="activeAlerts" style="color:#A32D2D">0</div>
+      <div class="card-sub">Desde `/status` y `/alerts`</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Vehículos con GPS</div>
+      <div class="card-value" id="gpsCount" style="color:#854F0B">0</div>
+      <div class="card-sub">Último dato recibido por vehículo</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Posición GPS desde el controlador Java</h2>
+    <div class="map-wrap"><canvas id="mapCanvas"></canvas></div>
+    <div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
+      <span style="font-size:12px;color:#666"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#185FA5;margin-right:5px;vertical-align:middle"></span>VH-001</span>
+      <span style="font-size:12px;color:#666"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#0F6E56;margin-right:5px;vertical-align:middle"></span>VH-002</span>
+      <span style="font-size:12px;color:#666"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#993C1D;margin-right:5px;vertical-align:middle"></span>VH-003</span>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2>Estado consolidado por API REST</h2>
+      <div class="rest-grid">
+        <div class="rest-pill"><label>Vehículos activos</label><strong id="restActiveVehicles">0</strong></div>
+        <div class="rest-pill"><label>Alertas activas</label><strong id="restAlerts">0</strong></div>
+        <div class="rest-pill"><label>Estado</label><strong id="restStatus">—</strong></div>
+      </div>
+      <div style="height: 18px"></div>
+      <h2 style="margin-top:0">Velocidad actual por vehículo (km/h)</h2>
+      <div class="chart-wrap"><canvas id="tempChart"></canvas></div>
+      <div class="chart-wrap" style="margin-top:10px"><canvas id="fuelChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2>Vehículos desde la API REST</h2>
+      <div class="vehicles-list" id="vehiclesList">
+        <div style="font-size:13px;color:#888">Sin datos aún...</div>
+      </div>
+      <div class="vehicle-detail" id="vehicleDetail">
+        <div class="vehicle-detail-header">
+          <div>
+            <div class="vehicle-detail-title">Detalle de vehículo</div>
+            <div class="vehicle-detail-meta">Haz clic en un vehículo para ver su último GPS y su historial desde la API.</div>
+          </div>
+        </div>
+        <div style="font-size:13px;color:#888">Selecciona un vehículo para cargar detalle.</div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Registro de alertas desde la API REST</h2>
+      <div class="alerts-list" id="alertsList">
+        <div class="alert-item info">Sistema iniciado. Esperando conexión con la API...</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const VEH_COLORS = {'VH-001':'#185FA5','VH-002':'#0F6E56','VH-003':'#993C1D'};
+const VEHICLES = ['VH-001','VH-002','VH-003'];
+const MAX_POINTS = 20;
+const BASE_LAT = -2.1709, BASE_LNG = -79.9224, RANGE = 0.015;
+
+let apiTimer = null;
+let mqttClient = null;
+let currentApiBase = '';
+let selectedVehicleId = null;
+let msgCount = 0, tempAlertsCount = 0, fuelAlertsCount = 0;
+let apiConnected = false;
+
+const state = {};
+VEHICLES.forEach(v => {
+  state[v] = { gps: null, temp: null, fuel: null, gpsHistory: [], tempHistory: [], fuelHistory: [], timeHistory: [], alerts: [] };
+});
+
+// ── Charts ───────────────────────────────────────────────────────────────────
+const chartBase = {
+  responsive: true, maintainAspectRatio: false,
+  animation: { duration: 300 },
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { ticks: { font: { size: 10 }, maxRotation: 0, maxTicksLimit: 6 }, grid: { display: false } },
+    y: { ticks: { font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.1)' } }
+  }
+};
+
+const tempChart = new Chart(document.getElementById('tempChart').getContext('2d'), {
+  type: 'bar',
+  data: { labels: [], datasets: [{ label: 'Velocidad', data: [], backgroundColor: VEHICLES.map(v => VEH_COLORS[v]) }] },
+  options: { ...chartBase, scales: { ...chartBase.scales, y: { ...chartBase.scales.y, min: 0, max: 120 } } }
+});
+
+const fuelChart = new Chart(document.getElementById('fuelChart').getContext('2d'), {
+  type: 'doughnut',
+  data: { labels: ['TEMP_ALERT', 'FUEL_LOW', 'Sin alertas'], datasets: [{ data: [0, 0, 1], backgroundColor: ['#A32D2D', '#854F0B', '#E5E5E0'] }] },
+  options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+});
+
+// ── Map ───────────────────────────────────────────────────────────────────────
+const mapCanvas = document.getElementById('mapCanvas');
+const mapCtx = mapCanvas.getContext('2d');
+
+function resizeMap() {
+  const wrap = mapCanvas.parentElement;
+  mapCanvas.width = wrap.clientWidth;
+  mapCanvas.height = wrap.clientHeight;
+}
+
+function drawMap() {
+  resizeMap();
+  const W = mapCanvas.width, H = mapCanvas.height;
+  mapCtx.clearRect(0, 0, W, H);
+  mapCtx.fillStyle = '#E1F5EE';
+  mapCtx.fillRect(0, 0, W, H);
+
+  mapCtx.strokeStyle = 'rgba(15,110,86,0.15)';
+  mapCtx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    mapCtx.beginPath(); mapCtx.moveTo(W * i / 4, 0); mapCtx.lineTo(W * i / 4, H); mapCtx.stroke();
+    mapCtx.beginPath(); mapCtx.moveTo(0, H * i / 4); mapCtx.lineTo(W, H * i / 4); mapCtx.stroke();
+  }
+
+  const cx = W / 2, cy = H / 2;
+  mapCtx.strokeStyle = 'rgba(15,110,86,0.3)'; mapCtx.lineWidth = 1;
+  mapCtx.beginPath(); mapCtx.moveTo(cx - 8, cy); mapCtx.lineTo(cx + 8, cy); mapCtx.stroke();
+  mapCtx.beginPath(); mapCtx.moveTo(cx, cy - 8); mapCtx.lineTo(cx, cy + 8); mapCtx.stroke();
+  mapCtx.fillStyle = 'rgba(15,110,86,0.45)'; mapCtx.font = '10px sans-serif';
+  mapCtx.fillText(BASE_LAT.toFixed(3) + ', ' + BASE_LNG.toFixed(3), cx + 4, cy - 4);
+
+  function toXY(lat, lng) {
+    return { x: ((lng - BASE_LNG) / RANGE + 0.5) * W, y: ((BASE_LAT - lat) / RANGE + 0.5) * H };
+  }
+
+  VEHICLES.forEach(v => {
+    const g = state[v].gps;
+    if (!g) return;
+    const { x, y } = toXY(g.lat, g.lng);
+    const col = VEH_COLORS[v];
+
+    if (state[v].gpsHistory.length > 1) {
+      mapCtx.strokeStyle = col + '55'; mapCtx.lineWidth = 1.5;
+      mapCtx.beginPath();
+      state[v].gpsHistory.forEach((p, i) => {
+        const { x: px, y: py } = toXY(p.lat, p.lng);
+        i === 0 ? mapCtx.moveTo(px, py) : mapCtx.lineTo(px, py);
+      });
+      mapCtx.stroke();
+    }
+
+    mapCtx.beginPath(); mapCtx.arc(x, y, 7, 0, Math.PI * 2);
+    mapCtx.fillStyle = col; mapCtx.fill();
+    mapCtx.strokeStyle = '#fff'; mapCtx.lineWidth = 1.5; mapCtx.stroke();
+    mapCtx.fillStyle = col; mapCtx.font = '500 11px sans-serif';
+    mapCtx.fillText(v, x + 10, y + 4);
+    if (g.speed !== undefined) {
+      mapCtx.fillStyle = 'rgba(0,0,0,0.4)'; mapCtx.font = '10px sans-serif';
+      mapCtx.fillText(g.speed.toFixed(0) + ' km/h', x + 10, y + 15);
+    }
+  });
+}
+
+function updateMapFromMqtt(topic, data) {
+  const parts = topic.split('/');
+  const vehId = parts[1];
+  const sensor = parts[2];
+  if (!state[vehId]) return;
+
+  if (sensor === 'gps') {
+    state[vehId].gps = data;
+    state[vehId].gpsHistory.push({ lat: data.lat, lng: data.lng });
+    if (state[vehId].gpsHistory.length > 15) state[vehId].gpsHistory.shift();
+    drawMap();
+  }
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function updateCharts() {
+  tempChart.data.labels = VEHICLES;
+  tempChart.data.datasets[0].data = VEHICLES.map(v => state[v].gps ? state[v].gps.speed : 0);
+  tempChart.data.datasets[0].backgroundColor = VEHICLES.map(v => VEH_COLORS[v]);
+  tempChart.update('none');
+
+  const alertCounts = { TEMP_ALERT: 0, FUEL_LOW: 0 };
+  Object.values(state).forEach(s => {
+    s.alerts.forEach(alert => {
+      if (alert.type === 'TEMP_ALERT') alertCounts.TEMP_ALERT += 1;
+      if (alert.type === 'FUEL_LOW') alertCounts.FUEL_LOW += 1;
+    });
+  });
+  const totalAlerts = alertCounts.TEMP_ALERT + alertCounts.FUEL_LOW;
+  fuelChart.data.datasets[0].data = [alertCounts.TEMP_ALERT, alertCounts.FUEL_LOW, Math.max(1, totalAlerts === 0 ? 1 : 0)];
+  fuelChart.update('none');
+}
+
+function updateVehiclesList() {
+  const el = document.getElementById('vehiclesList');
+  const active = VEHICLES.filter(v => state[v].gps || state[v].temp !== null || state[v].fuel !== null);
+  document.getElementById('activeCount').textContent = active.length + ' / 3';
+  if (active.length === 0) { el.innerHTML = '<div style="font-size:13px;color:#888">Sin datos aún...</div>'; return; }
+  el.innerHTML = VEHICLES.map(v => {
+    const s = state[v];
+    const hasData = s.gps || s.temp !== null || s.fuel !== null;
+    const speedVal = s.gps ? s.gps.speed.toFixed(0) + ' km/h' : '—';
+    const latVal = s.gps ? s.gps.lat.toFixed(4) : '—';
+    const lngVal = s.gps ? s.gps.lng.toFixed(4) : '—';
+    const alertCount = s.alerts.length;
+    const selectedClass = selectedVehicleId === v ? ' selected' : '';
+    return `<div class="veh-row clickable${selectedClass}" onclick="showVehicleDetail('${v}')">
+      <div class="veh-dot" style="background:${hasData ? VEH_COLORS[v] : '#aaa'}"></div>
+      <span class="veh-name">${v}</span>
+      <span class="veh-stats">${speedVal} &nbsp; lat ${latVal} &nbsp; lng ${lngVal}</span>
+      ${alertCount ? `<span class="alert-badge alert-temp">${alertCount} alertas</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderVehicleDetail(detail) {
+  const container = document.getElementById('vehicleDetail');
+  if (!detail) {
+    container.innerHTML = `
+      <div class="vehicle-detail-header">
+        <div>
+          <div class="vehicle-detail-title">Detalle de vehículo</div>
+          <div class="vehicle-detail-meta">Haz clic en un vehículo para ver su último GPS y su historial desde la API.</div>
+        </div>
+      </div>
+      <div style="font-size:13px;color:#888">Selecciona un vehículo para cargar detalle.</div>
+    `;
+    return;
+  }
+
+  const historyItems = (detail.telemetria || []).slice().reverse().slice(0, 10).map(item => {
+    const speed = typeof item.speed === 'number' ? item.speed.toFixed(0) : item.speed;
+    return `<div class="timeline-item">${item.timestamp || '—'} | lat ${item.lat ?? '—'} | lng ${item.lng ?? '—'} | ${speed ?? '—'} km/h</div>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="vehicle-detail-header">
+      <div>
+        <div class="vehicle-detail-title">${detail.vehicleId}</div>
+        <div class="vehicle-detail-meta">Último GPS y telemetría desde la API REST</div>
+      </div>
+    </div>
+    <div class="vehicle-detail-grid">
+      <div class="vehicle-mini"><label>Latitud</label><strong>${detail.lastGps?.data?.lat ?? '—'}</strong></div>
+      <div class="vehicle-mini"><label>Longitud</label><strong>${detail.lastGps?.data?.lng ?? '—'}</strong></div>
+      <div class="vehicle-mini"><label>Velocidad</label><strong>${detail.lastGps?.data?.speed ?? '—'} km/h</strong></div>
+    </div>
+    <div class="vehicle-mini">
+      <label>Mensaje</label>
+      <strong style="font-size:13px;font-weight:500">${detail.lastGps?.message || detail.message || 'Sin observaciones'}</strong>
+    </div>
+    <div>
+      <div class="vehicle-detail-meta" style="margin-bottom:6px;">Historial de telemetría</div>
+      <div class="timeline">${historyItems || '<div class="timeline-item">Sin historial disponible aún.</div>'}</div>
+    </div>
+  `;
+}
+
+async function showVehicleDetail(vehicleId) {
+  selectedVehicleId = vehicleId;
+  updateVehiclesList();
+
+  const container = document.getElementById('vehicleDetail');
+  container.innerHTML = `
+    <div class="vehicle-detail-header">
+      <div>
+        <div class="vehicle-detail-title">${vehicleId}</div>
+        <div class="vehicle-detail-meta">Cargando detalle desde la API REST...</div>
+      </div>
+    </div>
+    <div style="font-size:13px;color:#888">Consultando /vehicle/${vehicleId}/gps y /vehicle/${vehicleId}/telemetria...</div>
+  `;
+
+  try {
+    const [gpsRes, teleRes] = await Promise.all([
+      fetch(`${currentApiBase}/vehicle/${vehicleId}/gps`),
+      fetch(`${currentApiBase}/vehicle/${vehicleId}/telemetria`),
+    ]);
+
+    if (!gpsRes.ok || !teleRes.ok) {
+      throw new Error(`HTTP ${gpsRes.status}/${teleRes.status}`);
+    }
+
+    const [lastGps, telemetria] = await Promise.all([gpsRes.json(), teleRes.json()]);
+    renderVehicleDetail({ vehicleId, lastGps, telemetria: telemetria.telemetria || [], message: telemetria.message });
+  } catch (error) {
+    renderVehicleDetail({ vehicleId, message: 'No se pudo cargar el detalle: ' + error.message, telemetria: [] });
+  }
+}
+
+function addAlert(msg, type) {
+  const list = document.getElementById('alertsList');
+  const now = new Date().toISOString().split('T')[1].slice(0, 8);
+  const div = document.createElement('div');
+  div.className = 'alert-item ' + type;
+  div.textContent = '[' + now + '] ' + msg;
+  list.insertBefore(div, list.firstChild);
+  while (list.children.length > 40) list.removeChild(list.lastChild);
+  if (type === 'temp') { tempAlertsCount++; document.getElementById('tempAlerts').textContent = tempAlertsCount; }
+  if (type === 'fuel') { fuelAlertsCount++; document.getElementById('fuelAlerts').textContent = fuelAlertsCount; }
+}
+
+// ── API REST ─────────────────────────────────────────────────────────────────
+function setStatus(state, label) {
+  const dot = document.getElementById('statusDot');
+  dot.className = 'status-dot' + (state === true ? ' connected' : state === false ? ' error' : '');
+  document.getElementById('statusLabel').textContent = label;
+}
+
+function toggleConnect() {
+  if (apiConnected) {
+    apiConnected = false;
+    if (apiTimer) {
+      clearInterval(apiTimer);
+      apiTimer = null;
+    }
+    if (mqttClient && mqttClient.connected) {
+      mqttClient.end(true);
+      mqttClient = null;
+    }
+    document.getElementById('connectBtn').textContent = 'Conectar';
+    setStatus(null, 'Desconectado');
+    return;
+  }
+  const url = document.getElementById('apiUrl').value.trim().replace(/\/$/, '');
+  const brokerUrl = document.getElementById('brokerUrl').value.trim();
+  currentApiBase = url;
+  document.getElementById('connectBtn').textContent = 'Conectando...';
+  setStatus(null, 'Conectando...');
+
+  try {
+    mqttClient = mqtt.connect(brokerUrl, {
+      clientId: 'dashboard_' + Math.random().toString(16).slice(2, 8),
+      reconnectPeriod: 3000,
+      connectTimeout: 5000
+    });
+
+    mqttClient.on('connect', () => {
+      mqttClient.subscribe('flota/+/gps');
+      addAlert('Mapa MQTT conectado. Suscrito a flota/+/gps', 'info');
+      drawMap();
+    });
+
+    mqttClient.on('message', (topic, payload) => {
+      try {
+        const data = JSON.parse(payload.toString());
+        updateMapFromMqtt(topic, data);
+      } catch (error) {
+        // Ignorar payload inválido
+      }
+    });
+
+    mqttClient.on('error', error => {
+      addAlert('Error MQTT: ' + error.message, 'temp');
+    });
+  } catch (error) {
+    addAlert('No se pudo iniciar MQTT.js: ' + error.message, 'temp');
+  }
+
+  const poll = async () => {
+    try {
+      const [statusRes, vehiclesRes, alertsRes] = await Promise.all([
+        fetch(`${url}/status`),
+        fetch(`${url}/vehicles`),
+        fetch(`${url}/alerts`),
+      ]);
+
+      if (!statusRes.ok || !vehiclesRes.ok || !alertsRes.ok) {
+        throw new Error(`HTTP ${statusRes.status}/${vehiclesRes.status}/${alertsRes.status}`);
+      }
+
+      const status = await statusRes.json();
+      const vehicles = await vehiclesRes.json();
+      const alerts = await alertsRes.json();
+
+      apiConnected = true;
+      setStatus(true, 'Conectado a la API');
+      document.getElementById('connectBtn').textContent = 'Desconectar';
+
+      msgCount++;
+      document.getElementById('msgCount').textContent = msgCount + ' actualizaciones';
+      document.getElementById('lastUpdate').textContent = new Date().toISOString().split('T')[1].slice(0, 8);
+
+      document.getElementById('activeCount').textContent = `${status.activeVehicles || 0} / ${status.totalVehicles || 3}`;
+      document.getElementById('activeAlerts').textContent = status.activeAlerts || 0;
+      document.getElementById('gpsCount').textContent = Object.keys(vehicles.vehicles || {}).length;
+      document.getElementById('restActiveVehicles').textContent = status.activeVehicles || 0;
+      document.getElementById('restAlerts').textContent = status.activeAlerts || 0;
+      document.getElementById('restStatus').textContent = status.systemStatus || '—';
+
+      const gpsMap = vehicles.vehicles || {};
+      VEHICLES.forEach(v => {
+        const gps = gpsMap[v] || null;
+        state[v].gps = gps;
+        state[v].alerts = (alerts.alerts || []).filter(a => a.vehicleId === v);
+      });
+
+      const tempAlerts = (alerts.alerts || []).filter(a => a.type === 'TEMP_ALERT');
+      const fuelAlerts = (alerts.alerts || []).filter(a => a.type === 'FUEL_LOW');
+      tempAlertsCount = tempAlerts.length;
+      fuelAlertsCount = fuelAlerts.length;
+      const alertsList = document.getElementById('alertsList');
+      const renderedAlerts = (alerts.alerts || []).slice().reverse().slice(0, 40);
+      if (renderedAlerts.length === 0) {
+        alertsList.innerHTML = '<div class="alert-item info">Sin alertas registradas aún.</div>';
+      } else {
+        alertsList.innerHTML = renderedAlerts.map(alert => {
+          const kind = alert.type === 'FUEL_LOW' ? 'fuel' : 'temp';
+          const label = alert.type === 'FUEL_LOW' ? 'Combustible bajo' : 'Temperatura alta';
+          return `<div class="alert-item ${kind}">[${alert.vehicleId || 'N/A'}] ${label}: ${alert.value ?? '—'}${alert.unit ?? ''}</div>`;
+        }).join('');
+      }
+
+      updateCharts();
+      updateVehiclesList();
+
+      if (!selectedVehicleId && VEHICLES.length > 0) {
+        selectedVehicleId = VEHICLES[0];
+        await showVehicleDetail(selectedVehicleId);
+      } else if (selectedVehicleId) {
+        await showVehicleDetail(selectedVehicleId);
+      }
+    } catch (error) {
+      apiConnected = false;
+      setStatus(false, 'Error de API');
+      document.getElementById('connectBtn').textContent = 'Conectar';
+      addAlert('No se pudo consultar la API: ' + error.message, 'temp');
+      if (apiTimer) {
+        clearInterval(apiTimer);
+        apiTimer = null;
+      }
+    }
+  };
+
+  poll();
+  apiTimer = setInterval(poll, 5000);
+}
+
+window.addEventListener('load', () => { setTimeout(() => { drawMap(); toggleConnect(); }, 100); });
+window.addEventListener('resize', drawMap);
+</script>
+</body>
+</html>

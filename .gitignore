@@ -1,40 +1,46 @@
-# Build output
-target/
-!**/src/main/**/target/
-!**/src/test/**/target/
-
-# IDEs and editors
-.idea/
-.vscode/
-*.iml
-*.ipr
-*.iws
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Logs and runtime files
-*.log
-*.out
-*.pid
-*.pid.lock
-
-# Java temporary files
+### Java / Maven
+/fleet-monitor/target/
+**/target/
 *.class
 *.jar
 *.war
 *.ear
-*.zip
+.mvn/
+*.iml
 
-# Local environment overrides
+### Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+venv/
+venv*/
+env/
 .env
-.env.*
-application-local.properties
-application-dev.properties
 
-# Test and coverage artifacts
-surefire-reports/
-failsafe-reports/
-coverage/
-jacoco.exec
+### Node
+node_modules/
+
+### Docker / compose
+docker-compose.override.yml
+*.env
+
+### IDEs / editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+### Logs / OS
+*.log
+.DS_Store
+Thumbs.db
+
+### Databases / build artifacts
+*.db
+*.sqlite
+.cache/
+
+### Ignore local debug / system files
+/.idea/
+/.history/

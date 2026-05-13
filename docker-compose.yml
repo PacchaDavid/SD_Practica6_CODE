@@ -1,0 +1,91 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./sensor-bridge/mosquitto/config:/mosquitto/config
+      - mosquitto_data:/mosquitto/data
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    restart: unless-stopped
+
+  sensor-simulator:
+    build:
+      context: .
+      dockerfile: sensor-bridge/Dockerfile.simulator
+    depends_on:
+      - mosquitto
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+    restart: unless-stopped
+
+  mqtt-rabbitmq-bridge:
+    build:
+      context: .
+      dockerfile: sensor-bridge/Dockerfile.bridge
+    depends_on:
+      - mosquitto
+      - rabbitmq
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: admin
+      RABBITMQ_PASSWORD: admin123
+    restart: unless-stopped
+
+  mqtt-subscriber:
+    build:
+      context: .
+      dockerfile: sensor-bridge/Dockerfile.subscriber
+    depends_on:
+      - mosquitto
+    volumes:
+      - telemetria_data:/app/data
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      DB_PATH: /app/data/telemetria.db
+    restart: unless-stopped
+
+  fleet-api:
+    build:
+      context: .
+      dockerfile: fleet-monitor/Dockerfile
+    depends_on:
+      - rabbitmq
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: admin
+      SPRING_RABBITMQ_PASSWORD: admin123
+      SERVER_PORT: 8080
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - fleet-api
+      - mosquitto
+    restart: unless-stopped
+
+volumes:
+  mosquitto_data:
+  telemetria_data:

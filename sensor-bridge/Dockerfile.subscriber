@@ -1,0 +1,8 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY sensor-bridge/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY sensor-bridge/mqtt_suscriptor.py ./
+VOLUME ["/app/data"]
+ENV MQTT_BROKER=mosquitto MQTT_PORT=1883 DB_PATH=/app/data/telemetria.db
+CMD ["python", "mqtt_suscriptor.py"]

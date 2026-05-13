@@ -1,6 +1,5 @@
 package com.fleet.monitor.consumer;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fleet.monitor.config.RabbitMQConfig;
 import com.fleet.monitor.model.GpsMessage;
 import org.slf4j.Logger;
@@ -11,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -23,7 +23,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class GpsConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(GpsConsumer.class);
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Almacén en memoria: vehicleId → último GpsMessage recibido
     private final Map<String, GpsMessage> lastGpsData = new ConcurrentHashMap<>();
@@ -33,11 +32,16 @@ public class GpsConsumer {
     private static final int MAX_HISTORY = 100;
 
     @RabbitListener(queues = RabbitMQConfig.GPS_QUEUE)
-    public void consumeGps(String message) {
+    public void consumeGps(Map<String, Object> message) {
         try {
             log.info("📍 GPS recibido: {}", message);
 
-            GpsMessage gps = objectMapper.readValue(message, GpsMessage.class);
+            GpsMessage gps = new GpsMessage();
+            gps.setVehicleId(Objects.toString(message.getOrDefault("vehicle_id", message.get("vehicleId")), null));
+            gps.setTimestamp(Objects.toString(message.get("timestamp"), null));
+            gps.setLat(asDouble(message.get("lat")));
+            gps.setLng(asDouble(message.get("lng")));
+            gps.setSpeed(asDouble(message.get("speed")));
 
             // Guardar último dato por vehículo
             lastGpsData.put(gps.getVehicleId(), gps);
@@ -56,6 +60,13 @@ public class GpsConsumer {
         } catch (Exception e) {
             log.error("❌ Error procesando GPS: {}", e.getMessage());
         }
+    }
+
+    private double asDouble(Object value) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        return value == null ? 0.0 : Double.parseDouble(value.toString());
     }
 
     // ── Métodos de acceso para el FleetController ─────────────────────────────

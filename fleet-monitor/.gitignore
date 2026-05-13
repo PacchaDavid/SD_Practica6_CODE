@@ -1,0 +1,40 @@
+# Build output
+target/
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and runtime files
+*.log
+*.out
+*.pid
+*.pid.lock
+
+# Java temporary files
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+
+# Local environment overrides
+.env
+.env.*
+application-local.properties
+application-dev.properties
+
+# Test and coverage artifacts
+surefire-reports/
+failsafe-reports/
+coverage/
+jacoco.exec
