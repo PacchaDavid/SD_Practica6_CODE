@@ -3,9 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Monitoreo de Flota Logística — Híbrido MQTT + REST</title>
+<title>Monitoreo de Flota Logística</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.4/mqtt.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f0; color: #1a1a1a; min-height: 100vh; }
@@ -16,12 +15,7 @@
   .status-dot.error { background: #A32D2D; }
   .status-label { font-size: 13px; color: #666; }
   .main { padding: 16px; display: flex; flex-direction: column; gap: 16px; max-width: 1200px; margin: 0 auto; }
-  .cfg-panel { background: #fff; border: 1px solid #e5e5e0; border-radius: 10px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .cfg-panel label { font-size: 13px; color: #666; }
-  .cfg-panel input { height: 34px; padding: 0 10px; font-size: 13px; border: 1px solid #ddd; border-radius: 6px; width: 320px; outline: none; }
-  .cfg-panel input:focus { border-color: #185FA5; }
-  .cfg-panel button { height: 34px; padding: 0 18px; font-size: 13px; cursor: pointer; border: 1px solid #ddd; border-radius: 6px; background: #fff; transition: background .15s; }
-  .cfg-panel button:hover { background: #f5f5f0; }
+
   .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .card { background: #f0f0eb; border-radius: 8px; padding: 14px 16px; }
   .card-label { font-size: 12px; color: #666; margin-bottom: 4px; }
@@ -33,8 +27,6 @@
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .panel { background: #fff; border: 1px solid #e5e5e0; border-radius: 10px; padding: 16px; }
   .panel h2 { font-size: 13px; font-weight: 500; margin-bottom: 12px; color: #666; }
-  .map-wrap { position: relative; width: 100%; height: 360px; border-radius: 8px; overflow: hidden; background: #E1F5EE; }
-  #mapCanvas { width: 100%; height: 100%; }
   .chart-wrap { height: 200px; position: relative; }
   .vehicles-list { display: flex; flex-direction: column; gap: 8px; }
   .veh-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #e5e5e0; border-radius: 7px; }
@@ -59,11 +51,14 @@
   .alert-item.temp { background: #FCEBEB; border-color: #E24B4A; color: #791F1F; }
   .alert-item.fuel { background: #FAEEDA; border-color: #EF9F27; color: #633806; }
   .alert-item.info { background: #EAF3DE; border-color: #639922; color: #3B6D11; }
-  .context-panel { display: grid; grid-template-columns: 1.2fr .8fr; gap: 16px; }
-  .context-box { background: linear-gradient(135deg, #ffffff 0%, #f7f7f2 100%); border: 1px solid #e5e5e0; border-radius: 10px; padding: 16px; }
-  .context-box h2 { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #444; }
-  .context-box p, .context-box li { font-size: 13px; line-height: 1.5; color: #555; }
-  .context-box ul { margin-left: 18px; display: grid; gap: 6px; }
+  .guide { background: #fff; border: 1px solid #e5e5e0; border-radius: 10px; overflow: hidden; }
+  .guide summary { padding: 12px 16px; cursor: pointer; font-size: 13px; font-weight: 500; color: #666; display: flex; align-items: center; gap: 8px; user-select: none; }
+  .guide summary:hover { background: #fafaf6; }
+  .guide summary::marker { color: #aaa; }
+  .guide-body { padding: 0 16px 14px 16px; display: grid; gap: 10px; }
+  .guide-body p, .guide-body li { font-size: 13px; line-height: 1.5; color: #555; }
+  .guide-body ul { margin-left: 18px; display: grid; gap: 4px; }
+  .guide-body kbd { font-family: inherit; background: #f0f0eb; border: 1px solid #ddd; border-radius: 4px; padding: 0 5px; font-size: 12px; color: #444; }
   .rest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .rest-pill { background: #f7f7f2; border: 1px solid #e5e5e0; border-radius: 8px; padding: 10px 12px; }
   .rest-pill label { display: block; font-size: 11px; color: #777; margin-bottom: 4px; }
@@ -71,7 +66,6 @@
   @media (max-width: 700px) {
     .cards { grid-template-columns: 1fr; }
     .grid2 { grid-template-columns: 1fr; }
-    .context-panel { grid-template-columns: 1fr; }
     .rest-grid { grid-template-columns: 1fr; }
     .vehicle-detail-grid { grid-template-columns: 1fr; }
   }
@@ -95,30 +89,20 @@
 
 <div class="main">
 
-  <div class="context-panel">
-    <div class="context-box">
-      <h2>Cómo funciona este sistema</h2>
-      <p>Los sensores simulados publican GPS, temperatura y combustible por MQTT. El puente MQTT→RabbitMQ traduce los datos y el microservicio Java los consume para generar un estado consolidado, alertas e historial. Este dashboard mezcla ambos mundos: el mapa se actualiza por WebSocket MQTT en tiempo real, y los paneles de estado usan la API REST de Spring Boot.</p>
-    </div>
-    <div class="context-box">
-      <h2>Flujo de datos</h2>
+  <details class="guide">
+    <summary>Guía de uso — ¿cómo funciona este dashboard?</summary>
+    <div class="guide-body">
+      <p>Este panel consume la <strong>API REST</strong> del microservicio Java (Spring Boot) para mostrar el estado de una flota de 3 vehículos simulados (VH-001, VH-002, VH-003).</p>
       <ul>
-        <li>Simulador de sensores → MQTT</li>
-        <li>Puente MQTT → RabbitMQ</li>
-        <li>Microservicio Java → API REST</li>
-        <li>Dashboard → mapa en MQTT, estado en REST</li>
+        <li><strong>Tarjetas superiores:</strong> resumen rápido de vehículos activos, alertas vigentes y vehículos con datos de GPS.</li>
+        <li><strong>Gráficos:</strong> velocidad actual de cada vehículo (barras) y proporción de alertas por tipo (dona).</li>
+        <li><strong>Lista de vehículos:</strong> haz clic en cualquier vehículo para ver su detalle (último GPS e historial de telemetría).</li>
+        <li><strong>Alertas:</strong> registro histórico de alertas de temperatura alta (&gt;4 °C) y nivel bajo de combustible (&lt;20 %).</li>
+        <li><strong>Actualización automática:</strong> cada 5 segundos se refrescan todos los paneles.</li>
       </ul>
+      <p style="color:#888;font-size:12px">Endpoints utilizados: <code>/status</code>, <code>/vehicles</code>, <code>/alerts</code>, <code>/vehicle/{id}/gps</code>, <code>/vehicle/{id}/telemetria</code></p>
     </div>
-  </div>
-
-  <div class="cfg-panel">
-    <label>MQTT WebSocket:</label>
-    <input type="text" id="brokerUrl" value="ws://localhost:9001/mqtt" />
-    <label>API Java:</label>
-    <input type="text" id="apiUrl" value="http://localhost:8080/api/fleet" />
-    <button id="connectBtn" onclick="toggleConnect()">Conectar</button>
-    <span style="font-size:12px;color:#888">Mapa por MQTT y estado consolidado por REST</span>
-  </div>
+  </details>
 
   <div class="cards">
     <div class="card">
@@ -135,16 +119,6 @@
       <div class="card-label">Vehículos con GPS</div>
       <div class="card-value" id="gpsCount" style="color:#854F0B">0</div>
       <div class="card-sub">Último dato recibido por vehículo</div>
-    </div>
-  </div>
-
-  <div class="panel">
-    <h2>Posición GPS desde el controlador Java</h2>
-    <div class="map-wrap"><canvas id="mapCanvas"></canvas></div>
-    <div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap">
-      <span style="font-size:12px;color:#666"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#185FA5;margin-right:5px;vertical-align:middle"></span>VH-001</span>
-      <span style="font-size:12px;color:#666"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#0F6E56;margin-right:5px;vertical-align:middle"></span>VH-002</span>
-      <span style="font-size:12px;color:#666"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#993C1D;margin-right:5px;vertical-align:middle"></span>VH-003</span>
     </div>
   </div>
 
@@ -193,11 +167,8 @@
 const VEH_COLORS = {'VH-001':'#185FA5','VH-002':'#0F6E56','VH-003':'#993C1D'};
 const VEHICLES = ['VH-001','VH-002','VH-003'];
 const MAX_POINTS = 20;
-const BASE_LAT = -2.1709, BASE_LNG = -79.9224, RANGE = 0.015;
-
+const API_BASE = 'http://localhost:8080/api/fleet';
 let apiTimer = null;
-let mqttClient = null;
-let currentApiBase = '';
 let selectedVehicleId = null;
 let msgCount = 0, tempAlertsCount = 0, fuelAlertsCount = 0;
 let apiConnected = false;
@@ -229,83 +200,6 @@ const fuelChart = new Chart(document.getElementById('fuelChart').getContext('2d'
   data: { labels: ['TEMP_ALERT', 'FUEL_LOW', 'Sin alertas'], datasets: [{ data: [0, 0, 1], backgroundColor: ['#A32D2D', '#854F0B', '#E5E5E0'] }] },
   options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
 });
-
-// ── Map ───────────────────────────────────────────────────────────────────────
-const mapCanvas = document.getElementById('mapCanvas');
-const mapCtx = mapCanvas.getContext('2d');
-
-function resizeMap() {
-  const wrap = mapCanvas.parentElement;
-  mapCanvas.width = wrap.clientWidth;
-  mapCanvas.height = wrap.clientHeight;
-}
-
-function drawMap() {
-  resizeMap();
-  const W = mapCanvas.width, H = mapCanvas.height;
-  mapCtx.clearRect(0, 0, W, H);
-  mapCtx.fillStyle = '#E1F5EE';
-  mapCtx.fillRect(0, 0, W, H);
-
-  mapCtx.strokeStyle = 'rgba(15,110,86,0.15)';
-  mapCtx.lineWidth = 0.5;
-  for (let i = 0; i <= 4; i++) {
-    mapCtx.beginPath(); mapCtx.moveTo(W * i / 4, 0); mapCtx.lineTo(W * i / 4, H); mapCtx.stroke();
-    mapCtx.beginPath(); mapCtx.moveTo(0, H * i / 4); mapCtx.lineTo(W, H * i / 4); mapCtx.stroke();
-  }
-
-  const cx = W / 2, cy = H / 2;
-  mapCtx.strokeStyle = 'rgba(15,110,86,0.3)'; mapCtx.lineWidth = 1;
-  mapCtx.beginPath(); mapCtx.moveTo(cx - 8, cy); mapCtx.lineTo(cx + 8, cy); mapCtx.stroke();
-  mapCtx.beginPath(); mapCtx.moveTo(cx, cy - 8); mapCtx.lineTo(cx, cy + 8); mapCtx.stroke();
-  mapCtx.fillStyle = 'rgba(15,110,86,0.45)'; mapCtx.font = '10px sans-serif';
-  mapCtx.fillText(BASE_LAT.toFixed(3) + ', ' + BASE_LNG.toFixed(3), cx + 4, cy - 4);
-
-  function toXY(lat, lng) {
-    return { x: ((lng - BASE_LNG) / RANGE + 0.5) * W, y: ((BASE_LAT - lat) / RANGE + 0.5) * H };
-  }
-
-  VEHICLES.forEach(v => {
-    const g = state[v].gps;
-    if (!g) return;
-    const { x, y } = toXY(g.lat, g.lng);
-    const col = VEH_COLORS[v];
-
-    if (state[v].gpsHistory.length > 1) {
-      mapCtx.strokeStyle = col + '55'; mapCtx.lineWidth = 1.5;
-      mapCtx.beginPath();
-      state[v].gpsHistory.forEach((p, i) => {
-        const { x: px, y: py } = toXY(p.lat, p.lng);
-        i === 0 ? mapCtx.moveTo(px, py) : mapCtx.lineTo(px, py);
-      });
-      mapCtx.stroke();
-    }
-
-    mapCtx.beginPath(); mapCtx.arc(x, y, 7, 0, Math.PI * 2);
-    mapCtx.fillStyle = col; mapCtx.fill();
-    mapCtx.strokeStyle = '#fff'; mapCtx.lineWidth = 1.5; mapCtx.stroke();
-    mapCtx.fillStyle = col; mapCtx.font = '500 11px sans-serif';
-    mapCtx.fillText(v, x + 10, y + 4);
-    if (g.speed !== undefined) {
-      mapCtx.fillStyle = 'rgba(0,0,0,0.4)'; mapCtx.font = '10px sans-serif';
-      mapCtx.fillText(g.speed.toFixed(0) + ' km/h', x + 10, y + 15);
-    }
-  });
-}
-
-function updateMapFromMqtt(topic, data) {
-  const parts = topic.split('/');
-  const vehId = parts[1];
-  const sensor = parts[2];
-  if (!state[vehId]) return;
-
-  if (sensor === 'gps') {
-    state[vehId].gps = data;
-    state[vehId].gpsHistory.push({ lat: data.lat, lng: data.lng });
-    if (state[vehId].gpsHistory.length > 15) state[vehId].gpsHistory.shift();
-    drawMap();
-  }
-}
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
 function updateCharts() {
@@ -408,8 +302,8 @@ async function showVehicleDetail(vehicleId) {
 
   try {
     const [gpsRes, teleRes] = await Promise.all([
-      fetch(`${currentApiBase}/vehicle/${vehicleId}/gps`),
-      fetch(`${currentApiBase}/vehicle/${vehicleId}/telemetria`),
+      fetch(`${API_BASE}/vehicle/${vehicleId}/gps`),
+      fetch(`${API_BASE}/vehicle/${vehicleId}/telemetria`),
     ]);
 
     if (!gpsRes.ok || !teleRes.ok) {
@@ -442,55 +336,8 @@ function setStatus(state, label) {
   document.getElementById('statusLabel').textContent = label;
 }
 
-function toggleConnect() {
-  if (apiConnected) {
-    apiConnected = false;
-    if (apiTimer) {
-      clearInterval(apiTimer);
-      apiTimer = null;
-    }
-    if (mqttClient && mqttClient.connected) {
-      mqttClient.end(true);
-      mqttClient = null;
-    }
-    document.getElementById('connectBtn').textContent = 'Conectar';
-    setStatus(null, 'Desconectado');
-    return;
-  }
-  const url = document.getElementById('apiUrl').value.trim().replace(/\/$/, '');
-  const brokerUrl = document.getElementById('brokerUrl').value.trim();
-  currentApiBase = url;
-  document.getElementById('connectBtn').textContent = 'Conectando...';
-  setStatus(null, 'Conectando...');
-
-  try {
-    mqttClient = mqtt.connect(brokerUrl, {
-      clientId: 'dashboard_' + Math.random().toString(16).slice(2, 8),
-      reconnectPeriod: 3000,
-      connectTimeout: 5000
-    });
-
-    mqttClient.on('connect', () => {
-      mqttClient.subscribe('flota/+/gps');
-      addAlert('Mapa MQTT conectado. Suscrito a flota/+/gps', 'info');
-      drawMap();
-    });
-
-    mqttClient.on('message', (topic, payload) => {
-      try {
-        const data = JSON.parse(payload.toString());
-        updateMapFromMqtt(topic, data);
-      } catch (error) {
-        // Ignorar payload inválido
-      }
-    });
-
-    mqttClient.on('error', error => {
-      addAlert('Error MQTT: ' + error.message, 'temp');
-    });
-  } catch (error) {
-    addAlert('No se pudo iniciar MQTT.js: ' + error.message, 'temp');
-  }
+async function startPolling() {
+  const url = API_BASE;
 
   const poll = async () => {
     try {
@@ -510,7 +357,6 @@ function toggleConnect() {
 
       apiConnected = true;
       setStatus(true, 'Conectado a la API');
-      document.getElementById('connectBtn').textContent = 'Desconectar';
 
       msgCount++;
       document.getElementById('msgCount').textContent = msgCount + ' actualizaciones';
@@ -558,7 +404,6 @@ function toggleConnect() {
     } catch (error) {
       apiConnected = false;
       setStatus(false, 'Error de API');
-      document.getElementById('connectBtn').textContent = 'Conectar';
       addAlert('No se pudo consultar la API: ' + error.message, 'temp');
       if (apiTimer) {
         clearInterval(apiTimer);
@@ -567,12 +412,11 @@ function toggleConnect() {
     }
   };
 
-  poll();
+  await poll();
   apiTimer = setInterval(poll, 5000);
 }
 
-window.addEventListener('load', () => { setTimeout(() => { drawMap(); toggleConnect(); }, 100); });
-window.addEventListener('resize', drawMap);
+window.addEventListener('load', () => { setTimeout(startPolling, 100); });
 </script>
 </body>
 </html>
