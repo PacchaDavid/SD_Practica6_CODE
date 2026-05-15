@@ -43,23 +43,5 @@ docker compose up -d dashboard
 ```bash
 docker compose down
 ```
-
-Problemas comunes y soluciones rápidas
-- Error de conexión en los servicios Python al arrancar: los brokers pueden tardar en estar listos; los servicios incluyen reintentos automáticos — vuelve a probar `docker compose up`.
-- El mapa en tiempo real usa MQTT WebSocket en el puerto `9001`. Si el mapa no muestra vehículos, asegúrate de que `mosquitto` esté publicado en el puerto 9001 y que el dashboard esté configurado con `ws://<host>:9001/mqtt` en el campo MQTT WebSocket.
-- Si el microservicio Java lanza excepciones de deserialización AMQP, revisa que RabbitMQ esté corriendo y que el puente MQTT→RabbitMQ esté enviando mensajes JSON.
-
-Desarrollo local sin Docker (opcional)
-- Backend Java: desde `fleet-monitor/` ejecutar `mvn -DskipTests package` y luego `java -jar target/*.jar` (requiere Java 17).
-- Dashboard: desde `frontend/` ejecutar `python3 server.py` y abrir `http://localhost:3000`.
-
-Estructura principal
-- `fleet-monitor/` — microservicio Java (Spring Boot)
-- `sensor-bridge/` — scripts Python: simulador MQTT, puente mqtt->rabbitmq, suscriptor
-- `frontend/` — HTML/JS del dashboard y `server.py` para servirlo
-- `docker-compose.yml` — orquestración de todos los servicios
-
-Si necesitas que actualice el README para incluir más detalles (endpoints específicos, diagramas, cómo ejecutar pruebas unitarias, credenciales diferentes), dímelo y lo amplío.
-
 ---
 Última actualización: 2026-05-13
