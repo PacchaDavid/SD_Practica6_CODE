@@ -1,0 +1,46 @@
+### Java / Maven
+/fleet-monitor/target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+.mvn/
+*.iml
+
+### Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+venv/
+venv*/
+env/
+.env
+
+### Node
+node_modules/
+
+### Docker / compose
+docker-compose.override.yml
+*.env
+
+### IDEs / editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+### Logs / OS
+*.log
+.DS_Store
+Thumbs.db
+
+### Databases / build artifacts
+*.db
+*.sqlite
+.cache/
+
+### Ignore local debug / system files
+/.idea/
+/.history/

@@ -1,0 +1,7 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY sensor-bridge/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY sensor-bridge/mqtt_rabbitmq_bridge.py ./
+ENV MQTT_BROKER=mosquitto MQTT_PORT=1883 RABBITMQ_HOST=rabbitmq RABBITMQ_PORT=5672
+CMD ["python", "mqtt_rabbitmq_bridge.py"]
